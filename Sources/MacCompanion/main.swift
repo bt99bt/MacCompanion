@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "Mac伴侣"
+        configureStatusButtonIcon(systemSymbolName: "wrench.and.screwdriver", accessibilityDescription: "Mac 伴侣")
 
         let menu = NSMenu()
         statusMenuItem = NSMenuItem(title: "状态：\(model.status)", action: nil, keyEquivalent: "")
@@ -119,8 +119,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func refreshMenuStatus() {
-        statusItem.button?.title = model.isWorking ? "Mac伴侣..." : "Mac伴侣"
+        configureStatusButtonIcon(
+            systemSymbolName: model.isWorking ? "clock.arrow.circlepath" : "wrench.and.screwdriver",
+            accessibilityDescription: model.isWorking ? "Mac 伴侣正在处理" : "Mac 伴侣"
+        )
         statusMenuItem?.title = "状态：\(model.status)"
+    }
+
+    private func configureStatusButtonIcon(systemSymbolName: String, accessibilityDescription: String) {
+        guard let button = statusItem.button else { return }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        let image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: accessibilityDescription)?
+            .withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        button.title = ""
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.toolTip = accessibilityDescription
     }
 
     @objc private func openConsole() {
