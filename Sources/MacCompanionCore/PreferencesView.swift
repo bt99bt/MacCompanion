@@ -83,6 +83,8 @@ public struct PreferencesView: View {
             }
             .padding(.vertical, 9)
             .padding(.horizontal, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
             .background(selectedModule == module ? Color.accentColor.opacity(0.12) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
