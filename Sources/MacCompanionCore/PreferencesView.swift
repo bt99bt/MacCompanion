@@ -298,7 +298,7 @@ public struct PreferencesView: View {
                     )
                     .toggleStyle(.switch)
 
-                    Text("应用默认显示 Dock 图标，并在启动或点击 Dock 时拉起控制台。菜单栏保留常驻快捷入口。")
+                    Text("控制台打开时显示 Dock 图标；关闭窗口后隐藏 Dock 图标，菜单栏入口继续保留。")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }

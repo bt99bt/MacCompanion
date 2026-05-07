@@ -3,7 +3,7 @@ import MacCompanionCore
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var preferencesWindow: NSWindow?
     private var statusMenuItem: NSMenuItem!
@@ -138,16 +138,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 defer: false
             )
             window.title = "我的 Mac 伴侣控制台"
+            window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: content)
             window.center()
             preferencesWindow = window
         }
+        NSApp.setActivationPolicy(.regular)
         if preferencesWindow?.isMiniaturized == true {
             preferencesWindow?.deminiaturize(nil)
         }
         preferencesWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    nonisolated func windowWillClose(_ notification: Notification) {
+        Task { @MainActor in
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     @objc private func openPreferences() {
