@@ -5,10 +5,10 @@ public struct AppConfig: Codable, Sendable {
 
     public static let `default` = AppConfig(
         feiniu: FeiniuConfig(
-            webURL: "https://your-feiniu.example.com:16666",
-            websocketURL: "wss://your-feiniu.example.com:16666/websocket?type=main",
-            origin: "https://your-feiniu.example.com:16666",
-            loginURL: "https://your-feiniu.example.com:16666",
+            webURL: "https://your-feiniu.example.com",
+            websocketURL: "wss://your-feiniu.example.com/websocket?type=main",
+            origin: "https://your-feiniu.example.com",
+            loginURL: "https://your-feiniu.example.com",
             loginMethod: "POST",
             loginContentType: "application/json",
             loginBodyTemplate: #"{"username":"{username}","password":"{password}"}"#,
