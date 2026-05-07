@@ -2,6 +2,11 @@
 .build/
 dist/
 
+# Generated app icons
+Resources/AppIcon.iconset/
+Resources/MacCompanion.icns
+Resources/MacCompanionIcon.png
+
 # macOS metadata
 .DS_Store
 
