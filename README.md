@@ -30,6 +30,8 @@ open dist/MacCompanion.app
 
 ## 飞牛网页登录
 
+首次使用前，先在设置里把默认飞牛地址改成你自己的 Web 界面地址、WebSocket URL 和 Origin。
+
 推荐路径：
 
 1. 打开桌面控制台。
