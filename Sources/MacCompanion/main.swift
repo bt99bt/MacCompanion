@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        configureStatusButtonIcon(systemSymbolName: "wrench.and.screwdriver", accessibilityDescription: "Mac 伴侣")
+        configureStatusButtonIcon(accessibilityDescription: "Mac 伴侣")
 
         let menu = NSMenu()
         statusMenuItem = NSMenuItem(title: "状态：\(model.status)", action: nil, keyEquivalent: "")
@@ -119,23 +119,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func refreshMenuStatus() {
-        configureStatusButtonIcon(
-            systemSymbolName: model.isWorking ? "clock.arrow.circlepath" : "wrench.and.screwdriver",
-            accessibilityDescription: model.isWorking ? "Mac 伴侣正在处理" : "Mac 伴侣"
-        )
+        configureStatusButtonIcon(accessibilityDescription: model.isWorking ? "Mac 伴侣正在处理" : "Mac 伴侣")
         statusMenuItem?.title = "状态：\(model.status)"
     }
 
-    private func configureStatusButtonIcon(systemSymbolName: String, accessibilityDescription: String) {
+    private func configureStatusButtonIcon(accessibilityDescription: String) {
         guard let button = statusItem.button else { return }
-        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-        let image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: accessibilityDescription)?
-            .withSymbolConfiguration(configuration)
-        image?.isTemplate = true
         button.title = ""
-        button.image = image
+        button.image = makeCompanionStatusImage(accessibilityDescription: accessibilityDescription)
         button.imagePosition = .imageOnly
         button.toolTip = accessibilityDescription
+    }
+
+    private func makeCompanionStatusImage(accessibilityDescription: String) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18))
+        image.accessibilityDescription = accessibilityDescription
+        image.lockFocus()
+
+        NSColor.black.setFill()
+        NSColor.black.setStroke()
+
+        let bubble = NSBezierPath(roundedRect: NSRect(x: 2.5, y: 5.5, width: 13, height: 10), xRadius: 3, yRadius: 3)
+        bubble.fill()
+
+        let tail = NSBezierPath()
+        tail.move(to: NSPoint(x: 6.1, y: 6.2))
+        tail.line(to: NSPoint(x: 3.9, y: 2.2))
+        tail.line(to: NSPoint(x: 9.4, y: 5.7))
+        tail.close()
+        tail.fill()
+
+        NSGraphicsContext.current?.compositingOperation = .clear
+        let leftEye = NSBezierPath(ovalIn: NSRect(x: 6, y: 10.4, width: 1.8, height: 1.8))
+        let rightEye = NSBezierPath(ovalIn: NSRect(x: 10.2, y: 10.4, width: 1.8, height: 1.8))
+        leftEye.fill()
+        rightEye.fill()
+
+        let smile = NSBezierPath()
+        smile.move(to: NSPoint(x: 6.8, y: 8.4))
+        smile.curve(
+            to: NSPoint(x: 11.2, y: 8.4),
+            controlPoint1: NSPoint(x: 8.0, y: 7.2),
+            controlPoint2: NSPoint(x: 10.0, y: 7.2)
+        )
+        smile.lineWidth = 1.3
+        smile.lineCapStyle = .round
+        smile.stroke()
+        NSGraphicsContext.current?.compositingOperation = .sourceOver
+
+        image.unlockFocus()
+        image.isTemplate = true
+        return image
     }
 
     @objc private func openConsole() {
