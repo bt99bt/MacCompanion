@@ -286,9 +286,20 @@ public struct PreferencesView: View {
             }
 
             panel("应用行为", systemImage: "dock.rectangle") {
-                Text("应用默认显示 Dock 图标，并在启动或点击 Dock 时拉起控制台。菜单栏保留常驻快捷入口。")
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(
+                        "开机启动 Mac 伴侣",
+                        isOn: Binding(
+                            get: { model.launchAtLoginEnabled },
+                            set: { model.setLaunchAtLoginEnabled($0) }
+                        )
+                    )
+                    .toggleStyle(.switch)
+
+                    Text("应用默认显示 Dock 图标，并在启动或点击 Dock 时拉起控制台。菜单栏保留常驻快捷入口。")
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             }
 
             activityLogPanel

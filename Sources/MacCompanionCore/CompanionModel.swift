@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 import WebKit
 
 @MainActor
@@ -14,6 +15,7 @@ public final class CompanionModel: ObservableObject {
     @Published public var activityLog: [String] = []
     @Published public var isFeiniuWebLoginPresented = false
     @Published public var isWorking = false
+    @Published public var launchAtLoginEnabled = false
     public let feiniuWebSession = FeiniuWebSession()
 
     private let configStore = ConfigStore()
@@ -29,6 +31,7 @@ public final class CompanionModel: ObservableObject {
             config = try configStore.load()
             configureFeiniuWebSession()
             refreshStoredTokenState()
+            refreshLaunchAtLoginState()
             Task { @MainActor in
                 await syncFeiniuTokenFromEmbeddedWebIfAvailable()
             }
@@ -164,6 +167,21 @@ public final class CompanionModel: ObservableObject {
         setStatus(value)
     }
 
+    public func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            refreshLaunchAtLoginState()
+            setStatus(enabled ? "已开启开机启动" : "已关闭开机启动")
+        } catch {
+            refreshLaunchAtLoginState()
+            setStatus("更新开机启动失败：\(error.localizedDescription)")
+        }
+    }
+
     public func ensureFeiniuSession() async throws {
         await syncFeiniuTokenFromEmbeddedWebIfAvailable()
         if hasFeiniuSession {
@@ -182,6 +200,10 @@ public final class CompanionModel: ObservableObject {
         } else {
             loginState = "未登录"
         }
+    }
+
+    private func refreshLaunchAtLoginState() {
+        launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
     }
 
     private func configureFeiniuWebSession() {
