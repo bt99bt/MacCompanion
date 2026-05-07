@@ -1,0 +1,13 @@
+# Build outputs
+.build/
+dist/
+
+# macOS metadata
+.DS_Store
+
+# SwiftPM generated files
+Package.resolved
+
+# Xcode local state
+*.xcuserdatad/
+DerivedData/
