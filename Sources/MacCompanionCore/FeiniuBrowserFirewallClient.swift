@@ -216,10 +216,11 @@ public final class FeiniuBrowserFirewallClient {
 
     function request(socket, messages, payload, options = {}) {
       return new Promise((resolve, reject) => {
+        const timeout = options.timeout ?? 12000;
         const timer = setTimeout(() => {
           socket.removeEventListener("message", onMessage);
           reject(new Error(`等待飞牛响应超时：${payload.req}；最近消息：${messages.join(" || ")}`));
-        }, 12000);
+        }, timeout);
 
         const onMessage = (event) => {
           const parsed = parseMessage(event.data);
@@ -273,6 +274,27 @@ public final class FeiniuBrowserFirewallClient {
         }
       }
       return String(error);
+    }
+
+    function sleep(milliseconds) {
+      return new Promise((resolve) => setTimeout(resolve, milliseconds));
+    }
+
+    function isAllowAllRuleForIP(rule, targetIP) {
+      return Boolean(rule) &&
+        rule.allow === true &&
+        rule.enable === true &&
+        rule.flowdir === 1 &&
+        rule.pro === 1 &&
+        rule.ips &&
+        rule.ips.type === 0 &&
+        rule.ips.ip === targetIP &&
+        rule.ports &&
+        rule.ports.type === 1 &&
+        rule.ports.ranges &&
+        rule.ports.ranges.range &&
+        rule.ports.ranges.range.from === portFrom &&
+        rule.ports.ranges.range.to === portTo;
     }
 
     async function findOfficialSocket() {
@@ -406,22 +428,7 @@ public final class FeiniuBrowserFirewallClient {
         });
       }
 
-      const exists = payload.rules.some((rule) => {
-        return rule &&
-          rule.allow === true &&
-          rule.enable === true &&
-          rule.flowdir === 1 &&
-          rule.pro === 1 &&
-          rule.ips &&
-          rule.ips.type === 0 &&
-          rule.ips.ip === ip &&
-          rule.ports &&
-          rule.ports.type === 1 &&
-          rule.ports.ranges &&
-          rule.ports.ranges.range &&
-          rule.ports.ranges.range.from === portFrom &&
-          rule.ports.ranges.range.to === portTo;
-      });
+      const exists = payload.rules.some((rule) => isAllowAllRuleForIP(rule, ip));
 
       if (exists) {
         if (socket) {
@@ -462,16 +469,55 @@ public final class FeiniuBrowserFirewallClient {
         memo
       });
 
-      const ack = usesOfficialPageSession
-        ? await requestWithOfficialPageSession({
-            data: payloads,
-            req: "appcgi.security.firewall.setting"
-          }, { timeout: 20000 })
-        : await request(socket, messages, {
-            reqid: makeReqID(),
-            data: payloads,
-            req: "appcgi.security.firewall.setting"
-          });
+      const readCurrentFirewall = async () => {
+        return usesOfficialPageSession
+          ? await requestWithOfficialPageSession({
+              req: "appcgi.security.firewall.getting"
+            }, { timeout: 15000 })
+          : await request(socket, messages, {
+              reqid: makeReqID(),
+              req: "appcgi.security.firewall.getting"
+            }, { timeout: 15000 });
+      };
+
+      let ack;
+      try {
+        ack = usesOfficialPageSession
+          ? await requestWithOfficialPageSession({
+              data: payloads,
+              req: "appcgi.security.firewall.setting"
+            }, { timeout: 30000 })
+          : await request(socket, messages, {
+              reqid: makeReqID(),
+              data: payloads,
+              req: "appcgi.security.firewall.setting"
+            }, { timeout: 30000 });
+      } catch (saveError) {
+        const saveErrorMessage = describeRemoteError(saveError);
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          await sleep(1200);
+          try {
+            const check = await readCurrentFirewall();
+            const checkedPayload = (check.data || [])[0];
+            const checkedRules = checkedPayload && Array.isArray(checkedPayload.rules) ? checkedPayload.rules : [];
+            if (checkedRules.some((rule) => isAllowAllRuleForIP(rule, ip))) {
+              if (socket) {
+                socket.close();
+              }
+              return JSON.stringify({
+                action: "added",
+                ip,
+                ruleCount: checkedRules.length,
+                transport: usesOfficialPageSession ? check.__macCompanionTransport : "manual-websocket",
+                warning: `保存响应超时，但复查确认规则已添加：${saveErrorMessage}`
+              });
+            }
+          } catch (_) {
+            // Keep the original save error; the retry is only a confirmation path.
+          }
+        }
+        throw new Error(`保存规则后等待响应超时，复查也没有发现新规则：${saveErrorMessage}`);
+      }
       if (socket) {
         socket.close();
       }

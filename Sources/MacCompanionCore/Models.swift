@@ -2,8 +2,10 @@ import Foundation
 
 public struct AppConfig: Codable, Sendable {
     public var feiniu: FeiniuConfig
+    public var cachedPublicIPv4: String?
 
     public static let `default` = AppConfig(
+        cachedPublicIPv4: nil,
         feiniu: FeiniuConfig(
             webURL: "https://your-feiniu.example.com",
             websocketURL: "wss://your-feiniu.example.com/websocket?type=main",
@@ -18,6 +20,22 @@ public struct AppConfig: Codable, Sendable {
             portRange: PortRange(from: 1, to: 65535)
         )
     )
+
+    enum CodingKeys: String, CodingKey {
+        case feiniu
+        case cachedPublicIPv4
+    }
+
+    public init(cachedPublicIPv4: String?, feiniu: FeiniuConfig) {
+        self.cachedPublicIPv4 = cachedPublicIPv4
+        self.feiniu = feiniu
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        feiniu = try container.decodeIfPresent(FeiniuConfig.self, forKey: .feiniu) ?? AppConfig.default.feiniu
+        cachedPublicIPv4 = try container.decodeIfPresent(String.self, forKey: .cachedPublicIPv4)
+    }
 }
 
 public struct FeiniuConfig: Codable, Sendable {

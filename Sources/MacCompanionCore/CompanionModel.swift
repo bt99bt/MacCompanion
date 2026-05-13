@@ -20,32 +20,67 @@ public final class CompanionModel: ObservableObject {
 
     private let configStore = ConfigStore()
     private let keychain = KeychainStore(service: "MacCompanion.Feiniu")
+    private let fileLogger = AppFileLogger()
     private var sessionToken: String?
     private var shouldAutoVerifyAfterWebSession = false
     private var lastAutoVerifiedToken: String?
 
-    public init() {}
+    public init() {
+        fileLogger.info("Mac 伴侣启动", category: "lifecycle")
+    }
+
+    public var logFilePath: String {
+        fileLogger.logFileURL.path
+    }
 
     public func load() {
+        fileLogger.info("开始读取配置", category: "config")
         do {
             config = try configStore.load()
+            if let cachedPublicIPv4 = config.cachedPublicIPv4, !cachedPublicIPv4.isEmpty {
+                lastPublicIP = cachedPublicIPv4
+            }
             configureFeiniuWebSession()
             refreshStoredTokenState()
             refreshLaunchAtLoginState()
+            fileLogger.info(
+                "配置读取完成",
+                category: "config",
+                details: [
+                    "webURL": config.feiniu.webURL,
+                    "websocketURL": config.feiniu.websocketURL,
+                    "origin": config.feiniu.origin,
+                    "tokenCookieName": config.feiniu.tokenCookieName,
+                    "cachedPublicIPv4": config.cachedPublicIPv4 ?? ""
+                ]
+            )
             Task { @MainActor in
                 await syncFeiniuTokenFromEmbeddedWebIfAvailable()
             }
         } catch {
+            fileLogger.error("读取配置失败", category: "config", details: errorDetails(error))
             setStatus("读取配置失败：\(error.localizedDescription)")
         }
     }
 
     public func save() {
+        fileLogger.info("开始保存配置", category: "config")
         do {
             try configStore.save(config)
             configureFeiniuWebSession()
+            fileLogger.info(
+                "配置保存完成",
+                category: "config",
+                details: [
+                    "webURL": config.feiniu.webURL,
+                    "websocketURL": config.feiniu.websocketURL,
+                    "origin": config.feiniu.origin,
+                    "portRange": "\(config.feiniu.portRange.from)-\(config.feiniu.portRange.to)"
+                ]
+            )
             setStatus("已保存配置")
         } catch {
+            fileLogger.error("保存配置失败", category: "config", details: errorDetails(error))
             setStatus("保存失败：\(error.localizedDescription)")
         }
     }
@@ -53,10 +88,12 @@ public final class CompanionModel: ObservableObject {
     public func openFeiniuWeb() {
         save()
         guard let url = feiniuWebURL else {
+            fileLogger.warning("飞牛 Web URL 无效", category: "feiniu", details: ["webURL": config.feiniu.webURL])
             setStatus("飞牛 Web URL 无效")
             return
         }
         NSWorkspace.shared.open(url)
+        fileLogger.info("已请求浏览器打开飞牛 Web 界面", category: "feiniu", details: ["url": url.absoluteString])
         setStatus("已打开飞牛 Web 界面")
     }
 
@@ -71,6 +108,7 @@ public final class CompanionModel: ObservableObject {
 
     public func presentFeiniuWebLogin(autoVerify: Bool = true) {
         guard feiniuWebURL != nil else {
+            fileLogger.warning("飞牛 Web URL 无效，无法打开内置网页登录", category: "feiniu", details: ["webURL": config.feiniu.webURL])
             setStatus("飞牛 Web URL 无效")
             return
         }
@@ -138,8 +176,28 @@ public final class CompanionModel: ObservableObject {
         await run("添加白名单") {
             self.save()
             try await self.ensureFeiniuSession()
-            let ip = try await PublicIPService().fetchIPv4()
+            let ipResult: PublicIPService.FetchResult
+            do {
+                ipResult = try await PublicIPService().fetchIPv4Result()
+            } catch {
+                if let publicIPError = error as? PublicIPError {
+                    self.logPublicIPAttemptFailures(publicIPError.attemptFailures)
+                }
+                if let cachedPublicIPv4 = self.config.cachedPublicIPv4, !cachedPublicIPv4.isEmpty {
+                    self.lastPublicIP = cachedPublicIPv4
+                    throw CachedPublicIPError(fetchError: error, cachedIP: cachedPublicIPv4)
+                }
+                throw error
+            }
+
+            let ip = ipResult.ip
             self.lastPublicIP = ip
+            self.cachePublicIPv4(ip)
+            self.fileLogger.info(
+                "公网 IP 获取成功",
+                category: "public-ip",
+                details: ["provider": ipResult.providerName, "ip": ip]
+            )
             let result = try await self.feiniuWebSession.addAllowAllRule(for: ip)
             let summary = try? await self.feiniuWebSession.fetchFirewallSummary()
             if let summary {
@@ -165,6 +223,11 @@ public final class CompanionModel: ObservableObject {
 
     public func note(_ value: String) {
         setStatus(value)
+    }
+
+    public func openLogFolder() {
+        NSWorkspace.shared.open(fileLogger.logDirectoryURL)
+        fileLogger.info("已打开日志文件夹", category: "log", details: ["path": fileLogger.logDirectoryURL.path])
     }
 
     public func setLaunchAtLoginEnabled(_ enabled: Bool) {
@@ -214,6 +277,9 @@ public final class CompanionModel: ObservableObject {
             },
             onNavigation: { [weak self] location in
                 self?.note("飞牛网页已加载：\(location)")
+            },
+            onDiagnostic: { [weak self] message in
+                self?.note(message)
             }
         )
     }
@@ -228,6 +294,7 @@ public final class CompanionModel: ObservableObject {
     private func storeFeiniuSessionToken(_ token: String) {
         sessionToken = token
         loginState = "已登录：当前会话可用"
+        fileLogger.info("已更新飞牛会话 token", category: "feiniu", details: ["tokenLength": "\(token.count)"])
     }
 
     private func autoVerifyFeiniuConnectionIfNeeded(token: String) {
@@ -240,6 +307,26 @@ public final class CompanionModel: ObservableObject {
         }
     }
 
+    private func cachePublicIPv4(_ ip: String) {
+        config.cachedPublicIPv4 = ip
+        do {
+            try configStore.save(config)
+            fileLogger.info("已缓存公网 IP", category: "public-ip", details: ["ip": ip])
+        } catch {
+            fileLogger.error("缓存公网 IP 失败", category: "public-ip", details: errorDetails(error))
+        }
+    }
+
+    private func logPublicIPAttemptFailures(_ failures: [PublicIPService.AttemptFailure]) {
+        for failure in failures {
+            fileLogger.warning(
+                "公网 IP provider 失败",
+                category: "public-ip",
+                details: ["provider": failure.providerName, "reason": failure.reason]
+            )
+        }
+    }
+
     private func currentFeiniuToken() throws -> String {
         if let sessionToken, !sessionToken.isEmpty {
             return sessionToken
@@ -249,10 +336,14 @@ public final class CompanionModel: ObservableObject {
 
     private func run(_ name: String, operation: @escaping () async throws -> String) async {
         isWorking = true
+        fileLogger.info("任务开始", category: "task", details: ["name": name])
         setStatus("\(name)中...")
         do {
-            setStatus(try await operation())
+            let message = try await operation()
+            fileLogger.info("任务完成", category: "task", details: ["name": name, "result": message])
+            setStatus(message)
         } catch {
+            fileLogger.error("任务失败", category: "task", details: errorDetails(error).merging(["name": name]) { current, _ in current })
             setStatus("\(name)失败：\(error.localizedDescription)")
         }
         isWorking = false
@@ -269,9 +360,25 @@ public final class CompanionModel: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         activityLog.insert("[\(formatter.string(from: Date()))] \(value)", at: 0)
+        fileLogger.info(value, category: "ui")
         if activityLog.count > 80 {
             activityLog.removeLast(activityLog.count - 80)
         }
+    }
+
+    private func errorDetails(_ error: Error) -> [String: String] {
+        let nsError = error as NSError
+        let userInfo = nsError.userInfo
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined(separator: "; ")
+        return [
+            "localizedDescription": error.localizedDescription,
+            "type": String(reflecting: Swift.type(of: error)),
+            "domain": nsError.domain,
+            "code": "\(nsError.code)",
+            "userInfo": userInfo
+        ]
     }
 
     private func postStatusChange() {
@@ -281,4 +388,13 @@ public final class CompanionModel: ObservableObject {
 
 public extension Notification.Name {
     static let companionStatusDidChange = Notification.Name("MacCompanion.statusDidChange")
+}
+
+private struct CachedPublicIPError: LocalizedError {
+    let fetchError: Error
+    let cachedIP: String
+
+    var errorDescription: String? {
+        "\(fetchError.localizedDescription)。最近一次成功获取：\(cachedIP)，仅供参考，未自动添加白名单"
+    }
 }

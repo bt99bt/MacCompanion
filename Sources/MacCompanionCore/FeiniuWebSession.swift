@@ -13,6 +13,7 @@ public final class FeiniuWebSession: NSObject, WKNavigationDelegate, WKHTTPCooki
     private var tokenContinuation: CheckedContinuation<String, Error>?
     private var onToken: ((String) -> Void)?
     private var onNavigation: ((String) -> Void)?
+    private var onDiagnostic: ((String) -> Void)?
 
     public override init() {
         let configuration = WKWebViewConfiguration()
@@ -27,11 +28,13 @@ public final class FeiniuWebSession: NSObject, WKNavigationDelegate, WKHTTPCooki
     public func configure(
         config: FeiniuConfig,
         onToken: @escaping (String) -> Void,
-        onNavigation: @escaping (String) -> Void
+        onNavigation: @escaping (String) -> Void,
+        onDiagnostic: @escaping (String) -> Void
     ) {
         self.config = config
         self.onToken = onToken
         self.onNavigation = onNavigation
+        self.onDiagnostic = onDiagnostic
     }
 
     public func loadIfNeeded() {
@@ -208,6 +211,13 @@ public final class FeiniuWebSession: NSObject, WKNavigationDelegate, WKHTTPCooki
 
         if let error = object["error"] as? String {
             throw FeiniuBrowserFirewallError.javascript(error)
+        }
+
+        if let warning = object["warning"] as? String, !warning.isEmpty {
+            onDiagnostic?(warning)
+        }
+        if let transport = object["transport"] as? String, !transport.isEmpty {
+            onDiagnostic?("飞牛防火墙调用通道：\(transport)")
         }
 
         return object

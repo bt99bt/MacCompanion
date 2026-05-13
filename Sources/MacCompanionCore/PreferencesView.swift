@@ -398,6 +398,22 @@ public struct PreferencesView: View {
 
     private var activityLogPanel: some View {
         panel("运行日志", systemImage: "terminal") {
+            HStack(spacing: 10) {
+                Text(model.logFilePath)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                Spacer()
+                Button {
+                    model.openLogFolder()
+                } label: {
+                    Label("打开日志文件夹", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+            }
+
             if model.activityLog.isEmpty {
                 Text("暂无日志")
                     .foregroundStyle(.secondary)
