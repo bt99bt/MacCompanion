@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(statusMenuItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeFeiniuMenuItem())
+        menu.addItem(makeNetworkMenuItem())
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "打开控制台", action: #selector(openConsole), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
@@ -78,6 +79,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(NSMenuItem(title: "添加当前公网 IP 到白名单", action: #selector(addCurrentIP), keyEquivalent: ""))
         submenu.addItem(NSMenuItem.separator())
         submenu.addItem(NSMenuItem(title: "打开飞牛控制台", action: #selector(openConsole), keyEquivalent: ""))
+
+        for submenuItem in submenu.items {
+            submenuItem.target = self
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    private func makeNetworkMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "受限 Wi-Fi", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "受限 Wi-Fi")
+        submenu.addItem(NSMenuItem(title: "检测联网", action: #selector(checkRestrictedWiFi), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem(title: "检测验证码 DNS 服务", action: #selector(checkRestrictedWiFiDNS), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem(title: "请求短信验证码", action: #selector(requestRestrictedWiFiSMS), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem(title: "自动请求短信并登录", action: #selector(autoLoginRestrictedWiFi), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem(title: "使用手动验证码登录", action: #selector(loginRestrictedWiFi), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem.separator())
+        submenu.addItem(NSMenuItem(title: "打开网络工具配置", action: #selector(openConsole), keyEquivalent: ""))
 
         for submenuItem in submenu.items {
             submenuItem.target = self
@@ -110,6 +129,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func verifyFeiniu() {
         Task { @MainActor in
             await model.verifyFeiniuFirewallConnection()
+            openPreferences()
+        }
+    }
+
+    @objc private func checkRestrictedWiFi() {
+        Task { @MainActor in
+            await model.checkRestrictedWiFiConnection()
+        }
+    }
+
+    @objc private func requestRestrictedWiFiSMS() {
+        Task { @MainActor in
+            await model.requestRestrictedWiFiSMS()
+        }
+    }
+
+    @objc private func checkRestrictedWiFiDNS() {
+        Task { @MainActor in
+            await model.checkRestrictedWiFiDNSServerHealth()
+        }
+    }
+
+    @objc private func autoLoginRestrictedWiFi() {
+        Task { @MainActor in
+            await model.loginRestrictedWiFiWithDNSCode()
+            openPreferences()
+        }
+    }
+
+    @objc private func loginRestrictedWiFi() {
+        Task { @MainActor in
+            await model.loginRestrictedWiFiWithManualCode()
             openPreferences()
         }
     }

@@ -101,11 +101,7 @@ public struct PreferencesView: View {
                     case .feiniu:
                         feiniuWorkspace
                     case .network:
-                        placeholderWorkspace(
-                            title: "网络工具",
-                            icon: "wifi",
-                            detail: "这里会放 Wi-Fi 信息、DNS 检测、端口连通性、路由追踪和常用网络修复动作。"
-                        )
+                        networkWorkspace
                     case .automation:
                         placeholderWorkspace(
                             title: "自动化",
@@ -277,6 +273,279 @@ public struct PreferencesView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var networkWorkspace: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            restrictedWiFiOverview
+            restrictedWiFiActions
+
+            HStack(alignment: .top, spacing: 18) {
+                restrictedWiFiAccountPanel
+                restrictedWiFiPortalPanel
+            }
+
+            restrictedWiFiServerPanel
+            restrictedWiFiDeployPanel
+            activityLogPanel
+        }
+    }
+
+    private var restrictedWiFiOverview: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+            statusTile(
+                title: "受限 Wi-Fi",
+                value: model.restrictedWiFiState,
+                icon: "wifi.exclamationmark",
+                tone: model.restrictedWiFiState.contains("成功") || model.restrictedWiFiState == "已联网" ? .green : .orange
+            )
+            statusTile(
+                title: "目标网段",
+                value: model.config.restrictedWiFi.targetIPPrefix,
+                icon: "point.3.connected.trianglepath.dotted",
+                tone: .blue
+            )
+            statusTile(
+                title: "接码服务部署",
+                value: model.wifiCodeServerDeployState,
+                icon: "shippingbox.and.arrow.backward",
+                tone: model.wifiCodeServerDeployState.hasPrefix("已部署") ? .green : .gray
+            )
+            statusTile(
+                title: "接码基础域名",
+                value: model.config.wifiCodeServerDeploy.baseDomain,
+                icon: "globe",
+                tone: .blue
+            )
+        }
+    }
+
+    private var restrictedWiFiActions: some View {
+        panel("受限 Wi-Fi 操作", systemImage: "antenna.radiowaves.left.and.right") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Button {
+                        Task { await model.checkRestrictedWiFiConnection() }
+                    } label: {
+                        Label("检测联网", systemImage: "network")
+                            .frame(minWidth: 104)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await model.requestRestrictedWiFiSMS() }
+                    } label: {
+                        Label("请求短信", systemImage: "envelope")
+                            .frame(minWidth: 104)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        Task { await model.fetchRestrictedWiFiVerificationCodeFromServer() }
+                    } label: {
+                        Label("DNS 取码", systemImage: "icloud.and.arrow.down")
+                            .frame(minWidth: 116)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await model.checkRestrictedWiFiDNSServerHealth() }
+                    } label: {
+                        Label("DNS 健康", systemImage: "heart.text.square")
+                            .frame(minWidth: 108)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await model.loginRestrictedWiFiWithDNSCode() }
+                    } label: {
+                        Label("自动登录", systemImage: "bolt.circle")
+                            .frame(minWidth: 108)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    Text("验证码")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    TextField("收到短信后输入", text: $model.restrictedWiFiVerificationCode)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                    Button {
+                        Task { await model.loginRestrictedWiFiWithManualCode() }
+                    } label: {
+                        Label("登录 Wi-Fi", systemImage: "checkmark.circle")
+                            .frame(minWidth: 112)
+                    }
+                    .buttonStyle(.bordered)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var restrictedWiFiAccountPanel: some View {
+        panel("账号与网络", systemImage: "person.text.rectangle") {
+            VStack(spacing: 10) {
+                labeledField("手机号", text: $model.config.restrictedWiFi.phoneNumber)
+                labeledField("国家码", text: $model.config.restrictedWiFi.countryCode)
+                labeledField("目标 IP 前缀", text: $model.config.restrictedWiFi.targetIPPrefix)
+                labeledField("联网检测 URL", text: $model.config.restrictedWiFi.connectivityCheckURL)
+                HStack(spacing: 10) {
+                    Text("成功状态码")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    TextField("204", value: $model.config.restrictedWiFi.expectedConnectivityStatusCode, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                    Spacer()
+                }
+                Button {
+                    model.save()
+                } label: {
+                    Label("保存网络配置", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var restrictedWiFiPortalPanel: some View {
+        panel("Portal 接口", systemImage: "link") {
+            VStack(spacing: 10) {
+                labeledField("登录 URL", text: $model.config.restrictedWiFi.portalLoginURL)
+                labeledField("Portal 页面", text: $model.config.restrictedWiFi.portalPageURL)
+                labeledField("短信 API", text: $model.config.restrictedWiFi.smsAPIURL)
+                labeledField("AP MAC", text: $model.config.restrictedWiFi.apMAC)
+                labeledField("NAS IP", text: $model.config.restrictedWiFi.nasIP)
+                labeledField("认证类型", text: $model.config.restrictedWiFi.defaultAuthType)
+                labeledField("语言", text: $model.config.restrictedWiFi.language)
+                labeledField("OS", text: $model.config.restrictedWiFi.os)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var restrictedWiFiServerPanel: some View {
+        panel("DNS 验证码服务", systemImage: "server.rack") {
+            VStack(alignment: .leading, spacing: 10) {
+                labeledField("验证码域名", text: $model.config.restrictedWiFi.dnsCodeLookupDomain)
+                labeledField("健康检查域名", text: $model.config.restrictedWiFi.dnsHealthLookupDomain)
+                labeledField("健康期望 A 记录", text: $model.config.restrictedWiFi.dnsHealthExpectedAddress)
+                HStack(spacing: 10) {
+                    Text("轮询设置")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    TextField("间隔秒", value: $model.config.restrictedWiFi.pollIntervalSeconds, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 86)
+                    Text("秒，最多")
+                        .foregroundStyle(.secondary)
+                    TextField("次数", value: $model.config.restrictedWiFi.pollAttempts, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 86)
+                    Text("次")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                labeledField("User-Agent", text: $model.config.restrictedWiFi.userAgent)
+            }
+        }
+    }
+
+    private var restrictedWiFiDeployPanel: some View {
+        panel("云端接码服务部署", systemImage: "icloud.and.arrow.up") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(spacing: 10) {
+                        labeledField("服务器地址", text: $model.config.wifiCodeServerDeploy.sshHost)
+                        HStack(spacing: 10) {
+                            Text("SSH 端口")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 104, alignment: .trailing)
+                            TextField("22", value: $model.config.wifiCodeServerDeploy.sshPort, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+                            Spacer()
+                        }
+                        labeledField("SSH 用户", text: $model.config.wifiCodeServerDeploy.sshUsername)
+                        HStack(spacing: 10) {
+                            Text("本次密码")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 104, alignment: .trailing)
+                            SecureField("只用于本次 SSH/sudo，不保存", text: $model.wifiCodeServerDeployPassword)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        labeledField("工作目录", text: $model.config.wifiCodeServerDeploy.remoteWorkDirectory)
+                        labeledField("基础域名", text: $model.config.wifiCodeServerDeploy.baseDomain)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .top)
+
+                    VStack(spacing: 10) {
+                        labeledField("容器名", text: $model.config.wifiCodeServerDeploy.containerName)
+                        labeledField("镜像名", text: $model.config.wifiCodeServerDeploy.imageName)
+                        HStack(spacing: 10) {
+                            Text("服务端口")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 104, alignment: .trailing)
+                            TextField("HTTP", value: $model.config.wifiCodeServerDeploy.httpPort, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 86)
+                            TextField("DNS", value: $model.config.wifiCodeServerDeploy.dnsPort, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 86)
+                            Spacer()
+                        }
+                        Toggle("自动安装 Docker", isOn: $model.config.wifiCodeServerDeploy.allowDockerInstall)
+                            .toggleStyle(.switch)
+                        Toggle("允许停止已知冲突容器", isOn: $model.config.wifiCodeServerDeploy.stopConflictingKnownContainers)
+                            .toggleStyle(.switch)
+                        HStack(spacing: 10) {
+                            Button {
+                                model.applyWiFiCodeServerDomains()
+                            } label: {
+                                Label("写入查询域名", systemImage: "square.and.arrow.down")
+                                    .frame(minWidth: 130)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                Task { await model.deployWiFiCodeServer() }
+                            } label: {
+                                Label("部署到云主机", systemImage: "paperplane")
+                                    .frame(minWidth: 132)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
+
+                Text(model.domainSetupGuide())
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                if !model.wifiCodeServerDeployLog.isEmpty {
+                    Text(model.wifiCodeServerDeployLog)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
     }
 
     private var settingsWorkspace: some View {
