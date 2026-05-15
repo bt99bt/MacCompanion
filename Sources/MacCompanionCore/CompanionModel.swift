@@ -322,6 +322,20 @@ public final class CompanionModel: ObservableObject {
         """
     }
 
+    public func refreshPublicIP() async {
+        await run("获取公网 IP") {
+            let result = try await PublicIPService().fetchIPv4Result()
+            self.lastPublicIP = result.ip
+            self.cachePublicIPv4(result.ip)
+            self.fileLogger.info(
+                "公网 IP 刷新成功",
+                category: "public-ip",
+                details: ["provider": result.providerName, "ip": result.ip]
+            )
+            return "公网 IP：\(result.ip)（通过 \(result.providerName)）"
+        }
+    }
+
     public func addCurrentIPToFeiniuFirewall() async {
         await run("添加白名单") {
             self.save()

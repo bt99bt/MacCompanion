@@ -213,6 +213,14 @@ public struct PreferencesView: View {
                 .buttonStyle(.bordered)
 
                 Button {
+                    Task { await model.refreshPublicIP() }
+                } label: {
+                    Label("刷新公网 IP", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(minWidth: 120)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
                     Task { await model.addCurrentIPToFeiniuFirewall() }
                 } label: {
                     Label("添加当前 IP", systemImage: "plus.circle")
