@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.clipboardPanelController.showNearMouse()
         },
         onDiagnostic: { [weak self] message in
-            self?.model.note(message)
+            self?.model.diagnostic(message, scope: .clipboard)
         }
     )
 

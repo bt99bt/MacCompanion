@@ -129,7 +129,7 @@ public struct PreferencesView: View {
                 Text(selectedModule.title)
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text(model.status)
+                Text(model.status(for: selectedModule.logScope))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -879,12 +879,13 @@ public struct PreferencesView: View {
                 .buttonStyle(.bordered)
             }
 
-            if model.activityLog.isEmpty {
+            let items = model.activityLog(for: selectedModule.logScope)
+            if items.isEmpty {
                 Text("暂无日志")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(model.activityLog, id: \.self) { item in
+                    ForEach(items, id: \.self) { item in
                         Text(item)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
@@ -964,6 +965,16 @@ private enum Module: String, CaseIterable {
         case .clipboard: "clipboard"
         case .automation: "bolt"
         case .settings: "gearshape"
+        }
+    }
+
+    var logScope: CompanionLogScope {
+        switch self {
+        case .feiniu: .feiniu
+        case .network: .network
+        case .clipboard: .clipboard
+        case .automation: .automation
+        case .settings: .settings
         }
     }
 }

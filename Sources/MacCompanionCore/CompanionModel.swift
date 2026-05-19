@@ -18,6 +18,8 @@ public final class CompanionModel: ObservableObject {
     @Published public var wifiCodeServerDeployLog = ""
     @Published public var lastPublicIP = "未知"
     @Published public var activityLog: [String] = []
+    @Published public var scopedActivityLog: [CompanionLogScope: [String]] = [:]
+    @Published public var scopedStatus: [CompanionLogScope: String] = [:]
     @Published public var clipboardHistory: [ClipboardHistoryItem] = []
     @Published public var clipboardState = "未启动"
     @Published public var isFeiniuWebLoginPresented = false
@@ -401,7 +403,19 @@ public final class CompanionModel: ObservableObject {
     }
 
     public func note(_ value: String) {
-        setStatus(value)
+        setStatus(value, scope: inferredScope(for: value))
+    }
+
+    public func diagnostic(_ value: String, scope: CompanionLogScope = .general) {
+        fileLogger.info(value, category: scope.rawValue)
+    }
+
+    public func activityLog(for scope: CompanionLogScope) -> [String] {
+        scopedActivityLog[scope] ?? []
+    }
+
+    public func status(for scope: CompanionLogScope) -> String {
+        scopedStatus[scope] ?? defaultStatus(for: scope)
     }
 
     public func openLogFolder() {
@@ -420,7 +434,7 @@ public final class CompanionModel: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.text, forType: .string)
         markClipboardHistoryItemUsed(item)
-        setStatus("已复制剪切板历史")
+        clipboardState = "已复制到系统剪切板"
     }
 
     public func clearClipboardHistory() {
@@ -428,10 +442,10 @@ public final class CompanionModel: ObservableObject {
         do {
             try clipboardHistoryStore.clear()
             clipboardState = "历史已清空"
-            setStatus("已清空剪切板历史")
+            setStatus("已清空剪切板历史", scope: .clipboard)
         } catch {
             clipboardState = "清空历史失败"
-            setStatus("清空剪切板历史失败：\(error.localizedDescription)")
+            setStatus("清空剪切板历史失败：\(error.localizedDescription)", scope: .clipboard)
         }
     }
 
@@ -679,34 +693,75 @@ public final class CompanionModel: ObservableObject {
     }
 
     private func run(_ name: String, operation: @escaping () async throws -> String) async {
+        let scope = inferredScope(for: name)
         isWorking = true
         fileLogger.info("任务开始", category: "task", details: ["name": name])
-        setStatus("\(name)中...")
+        setStatus("\(name)中...", scope: scope)
         do {
             let message = try await operation()
             fileLogger.info("任务完成", category: "task", details: ["name": name, "result": message])
-            setStatus(message)
+            setStatus(message, scope: scope)
         } catch {
             fileLogger.error("任务失败", category: "task", details: errorDetails(error).merging(["name": name]) { current, _ in current })
-            setStatus("\(name)失败：\(error.localizedDescription)")
+            setStatus("\(name)失败：\(error.localizedDescription)", scope: scope)
         }
         isWorking = false
         postStatusChange()
     }
 
-    private func setStatus(_ value: String) {
+    private func setStatus(_ value: String, scope: CompanionLogScope? = nil) {
+        let resolvedScope = scope ?? inferredScope(for: value)
         status = value
-        appendLog(value)
+        scopedStatus[resolvedScope] = value
+        appendLog(value, scope: resolvedScope)
         postStatusChange()
     }
 
-    private func appendLog(_ value: String) {
+    private func appendLog(_ value: String, scope: CompanionLogScope) {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
-        activityLog.insert("[\(formatter.string(from: Date()))] \(value)", at: 0)
-        fileLogger.info(value, category: "ui")
+        let entry = "[\(formatter.string(from: Date()))] \(value)"
+        activityLog.insert(entry, at: 0)
+        scopedActivityLog[scope, default: []].insert(entry, at: 0)
+        fileLogger.info(value, category: scope.rawValue)
         if activityLog.count > 80 {
             activityLog.removeLast(activityLog.count - 80)
+        }
+        if let count = scopedActivityLog[scope]?.count, count > 60 {
+            scopedActivityLog[scope]?.removeLast(count - 60)
+        }
+    }
+
+    private func inferredScope(for value: String) -> CompanionLogScope {
+        if value.contains("剪切板") {
+            return .clipboard
+        }
+        if value.contains("Wi-Fi") || value.contains("DNS") || value.contains("验证码") || value.contains("联网") || value.contains("云主机") {
+            return .network
+        }
+        if value.contains("飞牛") || value.contains("白名单") || value.contains("公网 IP") || value.contains("防火墙") {
+            return .feiniu
+        }
+        if value.contains("开机启动") || value.contains("配置") || value.contains("日志") {
+            return .settings
+        }
+        return .general
+    }
+
+    private func defaultStatus(for scope: CompanionLogScope) -> String {
+        switch scope {
+        case .feiniu:
+            return firewallState == "未检测防火墙" ? loginState : firewallState
+        case .network:
+            return restrictedWiFiState
+        case .clipboard:
+            return clipboardState
+        case .settings:
+            return launchAtLoginEnabled ? "开机启动已开启" : "开机启动未开启"
+        case .automation:
+            return "未执行"
+        case .general:
+            return status
         }
     }
 

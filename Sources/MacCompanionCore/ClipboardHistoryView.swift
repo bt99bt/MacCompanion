@@ -26,7 +26,10 @@ public struct ClipboardHistoryView: View {
             .frame(width: 170)
             .fixedSize(horizontal: false, vertical: true)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: .black.opacity(0.25), radius: 25, y: 10)
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            }
         .onDisappear {
             hoverTask?.cancel()
         }
@@ -122,7 +125,7 @@ private struct ClipboardHistoryRow: View {
             if isSelected {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .glassEffect(.regular)
-                    .tint(.purple)
+                    .tint(.purple.opacity(0.18))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))

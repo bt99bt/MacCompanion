@@ -56,7 +56,7 @@ final class ClipboardHistoryPanelController {
 
             let panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 170, height: 160),
-                styleMask: [.nonactivatingPanel, .fullSizeContentView],
+                styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
@@ -150,7 +150,7 @@ final class ClipboardHistoryPanelController {
 
             let panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
-                styleMask: [.nonactivatingPanel, .fullSizeContentView],
+                styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
@@ -162,7 +162,7 @@ final class ClipboardHistoryPanelController {
             panel.animationBehavior = .none
             panel.backgroundColor = .clear
             panel.isOpaque = false
-            panel.hasShadow = true
+            panel.hasShadow = false
             self.detailPanel = panel
         } else {
             detailContent?.text = text
@@ -268,10 +268,16 @@ extension ClipboardHistoryPanelController {
         let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
 
-        // Prefer below mouse, fall back to above
-        var y = mouse.y - size.height - padding
+        // Prefer below mouse, fall back to above.
+        let dockOffset = max(0, visibleFrame.minY - (screen?.frame.minY ?? 0))
+        var opensBelowMouse = true
+        var y = mouse.y - size.height - padding + dockOffset
         if y < visibleFrame.minY {
+            opensBelowMouse = false
             y = mouse.y + padding
+        }
+        if !opensBelowMouse {
+            y = min(y, visibleFrame.maxY - size.height)
         }
         // Clamp to visible frame (tight to edges)
         y = max(y, visibleFrame.minY)
@@ -313,7 +319,10 @@ private struct ClipboardDetailView: View {
             .padding(12)
             .frame(minWidth: 100, maxWidth: 300, alignment: .leading)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: .black.opacity(0.2), radius: 20, y: 8)
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            }
             .background(MouseTrackingRep(onHover: onHover))
     }
 }

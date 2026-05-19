@@ -198,6 +198,15 @@ public struct ClipboardHistoryItem: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+public enum CompanionLogScope: String, CaseIterable, Sendable {
+    case feiniu
+    case network
+    case clipboard
+    case settings
+    case automation
+    case general
+}
+
 public struct FeiniuConfig: Codable, Sendable {
     public var webURL: String
     public var websocketURL: String
