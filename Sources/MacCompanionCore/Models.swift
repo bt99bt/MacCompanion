@@ -4,6 +4,7 @@ public struct AppConfig: Codable, Sendable {
     public var feiniu: FeiniuConfig
     public var restrictedWiFi: RestrictedWiFiConfig
     public var wifiCodeServerDeploy: WiFiCodeServerDeployConfig
+    public var clipboardHistory: ClipboardHistoryConfig
     public var cachedPublicIPv4: String?
 
     public static let `default` = AppConfig(
@@ -59,6 +60,19 @@ public struct AppConfig: Codable, Sendable {
             dnsPort: 53,
             allowDockerInstall: true,
             stopConflictingKnownContainers: false
+        ),
+        clipboardHistory: ClipboardHistoryConfig(
+            isEnabled: true,
+            persistHistory: true,
+            maxItems: 100,
+            maxTextLength: 20_000,
+            pollIntervalSeconds: 0.5,
+            ignoresSensitiveText: false,
+            trigger: ClipboardTriggerConfig(
+                mode: .middleMouse,
+                keyboardShortcut: "cmd+option+v",
+                swallowMiddleMouseClick: true
+            )
         )
     )
 
@@ -66,6 +80,7 @@ public struct AppConfig: Codable, Sendable {
         case feiniu
         case restrictedWiFi
         case wifiCodeServerDeploy
+        case clipboardHistory
         case cachedPublicIPv4
     }
 
@@ -73,12 +88,14 @@ public struct AppConfig: Codable, Sendable {
         cachedPublicIPv4: String?,
         feiniu: FeiniuConfig,
         restrictedWiFi: RestrictedWiFiConfig,
-        wifiCodeServerDeploy: WiFiCodeServerDeployConfig
+        wifiCodeServerDeploy: WiFiCodeServerDeployConfig,
+        clipboardHistory: ClipboardHistoryConfig
     ) {
         self.cachedPublicIPv4 = cachedPublicIPv4
         self.feiniu = feiniu
         self.restrictedWiFi = restrictedWiFi
         self.wifiCodeServerDeploy = wifiCodeServerDeploy
+        self.clipboardHistory = clipboardHistory
     }
 
     public init(from decoder: Decoder) throws {
@@ -86,7 +103,98 @@ public struct AppConfig: Codable, Sendable {
         feiniu = try container.decodeIfPresent(FeiniuConfig.self, forKey: .feiniu) ?? AppConfig.default.feiniu
         restrictedWiFi = try container.decodeIfPresent(RestrictedWiFiConfig.self, forKey: .restrictedWiFi) ?? AppConfig.default.restrictedWiFi
         wifiCodeServerDeploy = try container.decodeIfPresent(WiFiCodeServerDeployConfig.self, forKey: .wifiCodeServerDeploy) ?? AppConfig.default.wifiCodeServerDeploy
+        clipboardHistory = try container.decodeIfPresent(ClipboardHistoryConfig.self, forKey: .clipboardHistory) ?? AppConfig.default.clipboardHistory
         cachedPublicIPv4 = try container.decodeIfPresent(String.self, forKey: .cachedPublicIPv4)
+    }
+}
+
+public struct ClipboardHistoryConfig: Codable, Sendable {
+    public var isEnabled: Bool
+    public var persistHistory: Bool
+    public var maxItems: Int
+    public var maxTextLength: Int
+    public var pollIntervalSeconds: Double
+    public var ignoresSensitiveText: Bool
+    public var trigger: ClipboardTriggerConfig
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case persistHistory
+        case maxItems
+        case maxTextLength
+        case pollIntervalSeconds
+        case ignoresSensitiveText
+        case trigger
+    }
+
+    public init(
+        isEnabled: Bool,
+        persistHistory: Bool,
+        maxItems: Int,
+        maxTextLength: Int,
+        pollIntervalSeconds: Double,
+        ignoresSensitiveText: Bool,
+        trigger: ClipboardTriggerConfig
+    ) {
+        self.isEnabled = isEnabled
+        self.persistHistory = persistHistory
+        self.maxItems = maxItems
+        self.maxTextLength = maxTextLength
+        self.pollIntervalSeconds = pollIntervalSeconds
+        self.ignoresSensitiveText = ignoresSensitiveText
+        self.trigger = trigger
+    }
+
+    public init(from decoder: Decoder) throws {
+        let defaults = AppConfig.default.clipboardHistory
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? defaults.isEnabled
+        persistHistory = try container.decodeIfPresent(Bool.self, forKey: .persistHistory) ?? defaults.persistHistory
+        maxItems = try container.decodeIfPresent(Int.self, forKey: .maxItems) ?? defaults.maxItems
+        maxTextLength = try container.decodeIfPresent(Int.self, forKey: .maxTextLength) ?? defaults.maxTextLength
+        pollIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .pollIntervalSeconds) ?? defaults.pollIntervalSeconds
+        ignoresSensitiveText = try container.decodeIfPresent(Bool.self, forKey: .ignoresSensitiveText) ?? defaults.ignoresSensitiveText
+        trigger = try container.decodeIfPresent(ClipboardTriggerConfig.self, forKey: .trigger) ?? defaults.trigger
+    }
+}
+
+public struct ClipboardTriggerConfig: Codable, Sendable {
+    public var mode: ClipboardTriggerMode
+    public var keyboardShortcut: String
+    public var swallowMiddleMouseClick: Bool
+
+    public init(mode: ClipboardTriggerMode, keyboardShortcut: String, swallowMiddleMouseClick: Bool) {
+        self.mode = mode
+        self.keyboardShortcut = keyboardShortcut
+        self.swallowMiddleMouseClick = swallowMiddleMouseClick
+    }
+}
+
+public enum ClipboardTriggerMode: String, Codable, CaseIterable, Sendable {
+    case middleMouse
+    case keyboard
+
+    public var title: String {
+        switch self {
+        case .middleMouse: "鼠标中键"
+        case .keyboard: "键盘快捷键"
+        }
+    }
+}
+
+public struct ClipboardHistoryItem: Codable, Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var text: String
+    public var createdAt: Date
+    public var lastUsedAt: Date?
+    public var useCount: Int
+
+    public init(id: UUID = UUID(), text: String, createdAt: Date = Date(), lastUsedAt: Date? = nil, useCount: Int = 0) {
+        self.id = id
+        self.text = text
+        self.createdAt = createdAt
+        self.lastUsedAt = lastUsedAt
+        self.useCount = useCount
     }
 }
 

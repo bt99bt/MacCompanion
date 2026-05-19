@@ -8,14 +8,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var preferencesWindow: NSWindow?
     private var statusMenuItem: NSMenuItem!
     private let model = CompanionModel()
+    private lazy var clipboardPanelController = ClipboardHistoryPanelController(model: model)
+    private lazy var clipboardTriggerController = ClipboardTriggerController(
+        onTrigger: { [weak self] in
+            self?.clipboardPanelController.showNearMouse()
+        },
+        onDiagnostic: { [weak self] message in
+            self?.model.note(message)
+        }
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         model.load()
+        clipboardTriggerController.configure(model.config.clipboardHistory)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(modelStatusDidChange),
             name: .companionStatusDidChange,
+            object: model
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(modelConfigDidChange),
+            name: .companionConfigDidChange,
             object: model
         )
         buildMainMenu()
@@ -57,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeFeiniuMenuItem())
         menu.addItem(makeNetworkMenuItem())
+        menu.addItem(makeClipboardMenuItem())
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "打开控制台", action: #selector(openConsole), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
@@ -79,6 +96,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(NSMenuItem(title: "添加当前公网 IP 到白名单", action: #selector(addCurrentIP), keyEquivalent: ""))
         submenu.addItem(NSMenuItem.separator())
         submenu.addItem(NSMenuItem(title: "打开飞牛控制台", action: #selector(openConsole), keyEquivalent: ""))
+
+        for submenuItem in submenu.items {
+            submenuItem.target = self
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    private func makeClipboardMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "剪切板", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "剪切板")
+        submenu.addItem(NSMenuItem(title: "打开剪切板历史", action: #selector(openClipboardHistory), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem(title: "清空剪切板历史", action: #selector(clearClipboardHistory), keyEquivalent: ""))
+        submenu.addItem(NSMenuItem.separator())
+        submenu.addItem(NSMenuItem(title: "打开剪切板配置", action: #selector(openConsole), keyEquivalent: ""))
 
         for submenuItem in submenu.items {
             submenuItem.target = self
@@ -165,8 +197,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @objc private func openClipboardHistory() {
+        clipboardPanelController.showNearMouse()
+    }
+
+    @objc private func clearClipboardHistory() {
+        model.clearClipboardHistory()
+    }
+
     @objc private func modelStatusDidChange() {
         refreshMenuStatus()
+    }
+
+    @objc private func modelConfigDidChange() {
+        clipboardTriggerController.configure(model.config.clipboardHistory)
     }
 
     private func refreshMenuStatus() {

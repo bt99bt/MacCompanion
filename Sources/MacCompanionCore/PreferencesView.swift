@@ -61,12 +61,11 @@ public struct PreferencesView: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .padding(18)
         .frame(width: 232)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func moduleButton(_ module: Module) -> some View {
@@ -85,8 +84,13 @@ public struct PreferencesView: View {
             .padding(.horizontal, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(RoundedRectangle(cornerRadius: 8))
-            .background(selectedModule == module ? Color.accentColor.opacity(0.12) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .background {
+                if selectedModule == module {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .glassEffect(.clear)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
     }
@@ -102,6 +106,8 @@ public struct PreferencesView: View {
                         feiniuWorkspace
                     case .network:
                         networkWorkspace
+                    case .clipboard:
+                        clipboardWorkspace
                     case .automation:
                         placeholderWorkspace(
                             title: "自动化",
@@ -281,6 +287,192 @@ public struct PreferencesView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var clipboardWorkspace: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            clipboardOverview
+            clipboardActions
+
+            HStack(alignment: .top, spacing: 18) {
+                clipboardTriggerPanel
+                clipboardStoragePanel
+            }
+
+            clipboardRecentPanel
+            activityLogPanel
+        }
+    }
+
+    private var clipboardOverview: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+            statusTile(
+                title: "历史剪切板",
+                value: model.config.clipboardHistory.isEnabled ? model.clipboardState : "已关闭",
+                icon: "clipboard",
+                tone: model.config.clipboardHistory.isEnabled ? .green : .gray
+            )
+            statusTile(
+                title: "触发方式",
+                value: model.clipboardTriggerSummary(),
+                icon: "cursorarrow.click",
+                tone: .blue
+            )
+            statusTile(
+                title: "历史数量",
+                value: "\(model.clipboardHistory.count) / \(model.config.clipboardHistory.maxItems)",
+                icon: "clock.arrow.circlepath",
+                tone: .blue
+            )
+            statusTile(
+                title: "重启保留",
+                value: model.config.clipboardHistory.persistHistory ? "开启" : "关闭",
+                icon: "externaldrive",
+                tone: model.config.clipboardHistory.persistHistory ? .green : .gray
+            )
+        }
+    }
+
+    private var clipboardActions: some View {
+        panel("剪切板操作", systemImage: "clipboard") {
+            HStack(spacing: 12) {
+                Toggle(
+                    "启用历史剪切板",
+                    isOn: Binding(
+                        get: { model.config.clipboardHistory.isEnabled },
+                        set: { model.setClipboardHistoryEnabled($0) }
+                    )
+                )
+                .toggleStyle(.switch)
+
+                Spacer()
+
+                Button {
+                    model.clearClipboardHistory()
+                } label: {
+                    Label("清空历史", systemImage: "trash")
+                        .frame(minWidth: 104)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    model.save()
+                } label: {
+                    Label("保存配置", systemImage: "square.and.arrow.down")
+                        .frame(minWidth: 112)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private var clipboardTriggerPanel: some View {
+        panel("呼出方式", systemImage: "cursorarrow.rays") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("触发方式", selection: $model.config.clipboardHistory.trigger.mode) {
+                    ForEach(ClipboardTriggerMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Toggle("鼠标中键呼出时吞掉原事件", isOn: $model.config.clipboardHistory.trigger.swallowMiddleMouseClick)
+                    .toggleStyle(.switch)
+                    .disabled(model.config.clipboardHistory.trigger.mode != .middleMouse)
+
+                labeledField("键盘快捷键", text: $model.config.clipboardHistory.trigger.keyboardShortcut)
+                    .disabled(model.config.clipboardHistory.trigger.mode != .keyboard)
+
+                Text("键盘格式示例：cmd+option+v、control+option+space。鼠标中键全局监听需要在系统设置里给 Mac 伴侣开启输入监控权限；吞掉中键事件可能还需要辅助功能权限。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    model.openAccessibilitySettings()
+                } label: {
+                    Label("打开隐私权限设置", systemImage: "gearshape")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var clipboardStoragePanel: some View {
+        panel("历史规则", systemImage: "slider.horizontal.3") {
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("保留条数")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    Stepper(value: $model.config.clipboardHistory.maxItems, in: 1...500, step: 10) {
+                        Text("\(model.config.clipboardHistory.maxItems) 条")
+                    }
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    Text("最大长度")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    TextField("字符数", value: $model.config.clipboardHistory.maxTextLength, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    Text("字符")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    Text("轮询间隔")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    TextField("秒", value: $model.config.clipboardHistory.pollIntervalSeconds, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    Text("秒")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                Toggle("重启后保留历史", isOn: $model.config.clipboardHistory.persistHistory)
+                    .toggleStyle(.switch)
+                Toggle("忽略疑似密码或密钥内容", isOn: $model.config.clipboardHistory.ignoresSensitiveText)
+                    .toggleStyle(.switch)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var clipboardRecentPanel: some View {
+        panel("最近记录", systemImage: "clock") {
+            if model.clipboardHistory.isEmpty {
+                Text("暂无文本历史")
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.clipboardHistory.prefix(8)) { item in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "doc.on.clipboard")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 18)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.text.replacingOccurrences(of: "\n", with: " "))
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                                Text("\(item.text.count) 字")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
     }
 
     private var networkWorkspace: some View {
@@ -540,8 +732,7 @@ public struct PreferencesView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 if !model.wifiCodeServerDeployLog.isEmpty {
                     Text(model.wifiCodeServerDeployLog)
@@ -549,8 +740,7 @@ public struct PreferencesView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
-                        .background(Color(nsColor: .windowBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
@@ -618,8 +808,7 @@ public struct PreferencesView: View {
         }
         .padding(14)
         .frame(minHeight: 90, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func flowStep(number: String, title: String, detail: String, state: FlowState) -> some View {
@@ -659,8 +848,7 @@ public struct PreferencesView: View {
             content()
         }
         .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func labeledField(_ label: String, text: Binding<String>) -> some View {
@@ -755,6 +943,7 @@ public struct PreferencesView: View {
 private enum Module: String, CaseIterable {
     case feiniu
     case network
+    case clipboard
     case automation
     case settings
 
@@ -762,6 +951,7 @@ private enum Module: String, CaseIterable {
         switch self {
         case .feiniu: "飞牛"
         case .network: "网络工具"
+        case .clipboard: "剪切板"
         case .automation: "自动化"
         case .settings: "设置"
         }
@@ -771,6 +961,7 @@ private enum Module: String, CaseIterable {
         switch self {
         case .feiniu: "server.rack"
         case .network: "wifi"
+        case .clipboard: "clipboard"
         case .automation: "bolt"
         case .settings: "gearshape"
         }

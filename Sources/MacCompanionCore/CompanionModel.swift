@@ -18,17 +18,22 @@ public final class CompanionModel: ObservableObject {
     @Published public var wifiCodeServerDeployLog = ""
     @Published public var lastPublicIP = "未知"
     @Published public var activityLog: [String] = []
+    @Published public var clipboardHistory: [ClipboardHistoryItem] = []
+    @Published public var clipboardState = "未启动"
     @Published public var isFeiniuWebLoginPresented = false
     @Published public var isWorking = false
     @Published public var launchAtLoginEnabled = false
     public let feiniuWebSession = FeiniuWebSession()
 
     private let configStore = ConfigStore()
+    private let clipboardHistoryStore = ClipboardHistoryStore()
     private let keychain = KeychainStore(service: "MacCompanion.Feiniu")
     private let fileLogger = AppFileLogger()
     private var sessionToken: String?
     private var shouldAutoVerifyAfterWebSession = false
     private var lastAutoVerifiedToken: String?
+    private var clipboardMonitorTimer: Timer?
+    private var lastPasteboardChangeCount = NSPasteboard.general.changeCount
 
     public init() {
         fileLogger.info("Mac 伴侣启动", category: "lifecycle")
@@ -46,6 +51,8 @@ public final class CompanionModel: ObservableObject {
                 lastPublicIP = cachedPublicIPv4
             }
             configureFeiniuWebSession()
+            loadClipboardHistory()
+            configureClipboardMonitoring()
             refreshStoredTokenState()
             refreshLaunchAtLoginState()
             fileLogger.info(
@@ -59,7 +66,9 @@ public final class CompanionModel: ObservableObject {
                     "restrictedWiFiTargetIPPrefix": config.restrictedWiFi.targetIPPrefix,
                     "wifiCodeServerDeployHost": config.wifiCodeServerDeploy.sshHost,
                     "wifiCodeServerDeployBaseDomain": config.wifiCodeServerDeploy.baseDomain,
-                    "cachedPublicIPv4": config.cachedPublicIPv4 ?? ""
+                    "cachedPublicIPv4": config.cachedPublicIPv4 ?? "",
+                    "clipboardHistoryEnabled": "\(config.clipboardHistory.isEnabled)",
+                    "clipboardHistoryCount": "\(clipboardHistory.count)"
                 ]
             )
             Task { @MainActor in
@@ -76,6 +85,9 @@ public final class CompanionModel: ObservableObject {
         do {
             try configStore.save(config)
             configureFeiniuWebSession()
+            configureClipboardMonitoring()
+            trimClipboardHistoryToLimit()
+            persistClipboardHistoryIfNeeded()
             fileLogger.info(
                 "配置保存完成",
                 category: "config",
@@ -86,10 +98,13 @@ public final class CompanionModel: ObservableObject {
                     "portRange": "\(config.feiniu.portRange.from)-\(config.feiniu.portRange.to)",
                     "restrictedWiFiTargetIPPrefix": config.restrictedWiFi.targetIPPrefix,
                     "wifiCodeServerDeployHost": config.wifiCodeServerDeploy.sshHost,
-                    "wifiCodeServerDeployBaseDomain": config.wifiCodeServerDeploy.baseDomain
+                    "wifiCodeServerDeployBaseDomain": config.wifiCodeServerDeploy.baseDomain,
+                    "clipboardTriggerMode": config.clipboardHistory.trigger.mode.rawValue,
+                    "clipboardHistoryMaxItems": "\(config.clipboardHistory.maxItems)"
                 ]
             )
             setStatus("已保存配置")
+            NotificationCenter.default.post(name: .companionConfigDidChange, object: self)
         } catch {
             fileLogger.error("保存配置失败", category: "config", details: errorDetails(error))
             setStatus("保存失败：\(error.localizedDescription)")
@@ -394,6 +409,46 @@ public final class CompanionModel: ObservableObject {
         fileLogger.info("已打开日志文件夹", category: "log", details: ["path": fileLogger.logDirectoryURL.path])
     }
 
+    public func openAccessibilitySettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+        if let url {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    public func copyClipboardHistoryItem(_ item: ClipboardHistoryItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        markClipboardHistoryItemUsed(item)
+        setStatus("已复制剪切板历史")
+    }
+
+    public func clearClipboardHistory() {
+        clipboardHistory = []
+        do {
+            try clipboardHistoryStore.clear()
+            clipboardState = "历史已清空"
+            setStatus("已清空剪切板历史")
+        } catch {
+            clipboardState = "清空历史失败"
+            setStatus("清空剪切板历史失败：\(error.localizedDescription)")
+        }
+    }
+
+    public func setClipboardHistoryEnabled(_ enabled: Bool) {
+        config.clipboardHistory.isEnabled = enabled
+        save()
+    }
+
+    public func clipboardTriggerSummary() -> String {
+        switch config.clipboardHistory.trigger.mode {
+        case .middleMouse:
+            return config.clipboardHistory.trigger.swallowMiddleMouseClick ? "鼠标中键单击，吞掉原事件" : "鼠标中键单击"
+        case .keyboard:
+            return normalizedShortcutDisplay(config.clipboardHistory.trigger.keyboardShortcut)
+        }
+    }
+
     public func setLaunchAtLoginEnabled(_ enabled: Bool) {
         do {
             if enabled {
@@ -431,6 +486,131 @@ public final class CompanionModel: ObservableObject {
 
     private func refreshLaunchAtLoginState() {
         launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+    }
+
+    private func loadClipboardHistory() {
+        guard config.clipboardHistory.persistHistory else {
+            clipboardHistory = []
+            clipboardState = config.clipboardHistory.isEnabled ? "已启动，不保留重启历史" : "已关闭"
+            return
+        }
+        do {
+            clipboardHistory = try clipboardHistoryStore.load()
+            trimClipboardHistoryToLimit()
+            clipboardState = config.clipboardHistory.isEnabled ? "已启动，已载入 \(clipboardHistory.count) 条" : "已关闭"
+        } catch {
+            clipboardHistory = []
+            clipboardState = "历史读取失败"
+            fileLogger.error("读取剪切板历史失败", category: "clipboard", details: errorDetails(error))
+        }
+    }
+
+    private func configureClipboardMonitoring() {
+        clipboardMonitorTimer?.invalidate()
+        clipboardMonitorTimer = nil
+        guard config.clipboardHistory.isEnabled else {
+            clipboardState = "已关闭"
+            return
+        }
+        lastPasteboardChangeCount = NSPasteboard.general.changeCount
+        let interval = max(0.2, config.clipboardHistory.pollIntervalSeconds)
+        clipboardMonitorTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.pollClipboard()
+            }
+        }
+        clipboardState = "监听中"
+    }
+
+    private func pollClipboard() {
+        let pasteboard = NSPasteboard.general
+        guard pasteboard.changeCount != lastPasteboardChangeCount else { return }
+        lastPasteboardChangeCount = pasteboard.changeCount
+        guard config.clipboardHistory.isEnabled else { return }
+        guard let text = pasteboard.string(forType: .string) else { return }
+        recordClipboardText(text)
+    }
+
+    private func recordClipboardText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard text.count <= max(1, config.clipboardHistory.maxTextLength) else {
+            clipboardState = "已忽略超长文本"
+            return
+        }
+        if config.clipboardHistory.ignoresSensitiveText, looksSensitive(text) {
+            clipboardState = "已忽略疑似敏感文本"
+            return
+        }
+
+        if let existingIndex = clipboardHistory.firstIndex(where: { $0.text == text }) {
+            let item = clipboardHistory.remove(at: existingIndex)
+            clipboardHistory.insert(item, at: 0)
+        } else {
+            clipboardHistory.insert(ClipboardHistoryItem(text: text), at: 0)
+        }
+        trimClipboardHistoryToLimit()
+        clipboardState = "已记录 \(clipboardHistory.count) 条"
+        persistClipboardHistoryIfNeeded()
+    }
+
+    private func markClipboardHistoryItemUsed(_ item: ClipboardHistoryItem) {
+        guard let index = clipboardHistory.firstIndex(where: { $0.id == item.id }) else { return }
+        var usedItem = clipboardHistory.remove(at: index)
+        usedItem.lastUsedAt = Date()
+        usedItem.useCount += 1
+        clipboardHistory.insert(usedItem, at: 0)
+        trimClipboardHistoryToLimit()
+        persistClipboardHistoryIfNeeded()
+    }
+
+    private func trimClipboardHistoryToLimit() {
+        let limit = max(1, config.clipboardHistory.maxItems)
+        if clipboardHistory.count > limit {
+            clipboardHistory.removeLast(clipboardHistory.count - limit)
+        }
+    }
+
+    private func persistClipboardHistoryIfNeeded() {
+        guard config.clipboardHistory.persistHistory else {
+            do {
+                try clipboardHistoryStore.clear()
+            } catch {
+                fileLogger.error("清理剪切板历史文件失败", category: "clipboard", details: errorDetails(error))
+            }
+            return
+        }
+        do {
+            try clipboardHistoryStore.save(clipboardHistory)
+        } catch {
+            clipboardState = "历史保存失败"
+            fileLogger.error("保存剪切板历史失败", category: "clipboard", details: errorDetails(error))
+        }
+    }
+
+    private func looksSensitive(_ text: String) -> Bool {
+        let lowercased = text.lowercased()
+        let markers = ["password", "passwd", "token", "api_key", "apikey", "secret", "bearer "]
+        if markers.contains(where: { lowercased.contains($0) }) {
+            return true
+        }
+        let compact = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard compact.count >= 24, compact.count <= 160 else { return false }
+        let characterSet = Set(compact)
+        return characterSet.count > min(18, compact.count / 2) && compact.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
+    }
+
+    private func normalizedShortcutDisplay(_ shortcut: String) -> String {
+        shortcut
+            .replacingOccurrences(of: "cmd", with: "⌘")
+            .replacingOccurrences(of: "command", with: "⌘")
+            .replacingOccurrences(of: "option", with: "⌥")
+            .replacingOccurrences(of: "alt", with: "⌥")
+            .replacingOccurrences(of: "shift", with: "⇧")
+            .replacingOccurrences(of: "control", with: "⌃")
+            .replacingOccurrences(of: "ctrl", with: "⌃")
+            .replacingOccurrences(of: "+", with: "")
+            .uppercased()
     }
 
     private func configureFeiniuWebSession() {
@@ -552,6 +732,7 @@ public final class CompanionModel: ObservableObject {
 
 public extension Notification.Name {
     static let companionStatusDidChange = Notification.Name("MacCompanion.statusDidChange")
+    static let companionConfigDidChange = Notification.Name("MacCompanion.configDidChange")
 }
 
 private struct CachedPublicIPError: LocalizedError {
