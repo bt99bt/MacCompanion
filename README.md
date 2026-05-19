@@ -15,11 +15,20 @@ This README is written for a future AI agent taking over this repo. Read this fi
   - requests SMS code from captive portal only when not online
   - supports manual code login
   - supports DNS-based code retrieval when captive Wi-Fi blocks HTTP
+- Clipboard history helper:
+  - records plain-text clipboard history only
+  - shows a lightweight glass-style picker near the mouse
+  - supports global middle-mouse trigger, with keyboard trigger config kept in settings
+  - keeps trigger diagnostics out of the visible module logs
 - Cloud relay deployment:
   - app UI can deploy the code relay service to a remote Linux server
   - remote deployment uses bundled Docker image tar files
   - supports both `amd64` and `arm64` servers
   - SSH/sudo password is entered manually and must not be persisted
+- Standard macOS window menu:
+  - `⌘W` closes the active window
+  - `⌘M` minimizes the active window
+  - `⌘Q` remains the app quit shortcut
 
 ## Repository Map
 
@@ -31,9 +40,13 @@ Resources/
   MacCompanionIcon.svg
 Sources/
   MacCompanion/
+    ClipboardHistoryPanelController.swift
+    ClipboardTriggerController.swift
     main.swift
   MacCompanionCore/
     AppFileLogger.swift
+    ClipboardHistoryStore.swift
+    ClipboardHistoryView.swift
     CompanionModel.swift
     ConfigStore.swift
     FeiniuBrowserFirewallClient.swift
@@ -69,10 +82,14 @@ dist/
 
 Important files:
 
-- `Sources/MacCompanion/main.swift`: app delegate, menu bar item, menu actions.
-- `Sources/MacCompanionCore/PreferencesView.swift`: SwiftUI control panel. The `网络工具` module contains restricted Wi-Fi login and cloud deploy UI.
+- `Sources/MacCompanion/main.swift`: app delegate, menu bar item, menu actions, and standard app/window menus.
+- `Sources/MacCompanion/ClipboardTriggerController.swift`: global clipboard-history trigger handling.
+- `Sources/MacCompanion/ClipboardHistoryPanelController.swift`: floating clipboard picker and detail-panel placement.
+- `Sources/MacCompanionCore/PreferencesView.swift`: SwiftUI control panel. The `网络工具` module contains restricted Wi-Fi login and cloud deploy UI; the `剪切板` module contains clipboard-history settings.
 - `Sources/MacCompanionCore/CompanionModel.swift`: main app state and action orchestration.
 - `Sources/MacCompanionCore/Models.swift`: persisted configuration schema and defaults.
+- `Sources/MacCompanionCore/ClipboardHistoryStore.swift`: persisted plain-text clipboard history storage.
+- `Sources/MacCompanionCore/ClipboardHistoryView.swift`: lightweight clipboard-history picker UI.
 - `Sources/MacCompanionCore/RestrictedWiFiLoginClient.swift`: captive portal SMS request, portal login, connectivity check, DNS code decoding.
 - `Sources/MacCompanionCore/WiFiCodeServerDeployClient.swift`: remote SSH/SCP deployment client.
 - `server/main.go`: DNS/HTTP verification code relay.
@@ -186,6 +203,7 @@ Persisted:
 - DNS code lookup domain.
 - DNS health domain and expected A record.
 - Remote deploy host, SSH port, SSH username, work directory, base domain, container/image/port settings.
+- Clipboard history settings: enabled state, persistence, max items, max text length, poll interval, sensitive-text filtering flag, and trigger config.
 
 Never persisted:
 
@@ -193,6 +211,14 @@ Never persisted:
 - sudo password.
 - Wi-Fi SMS verification code.
 - Feiniu session token from WebKit flow.
+
+Clipboard history is stored separately at:
+
+```text
+~/.mac-companion/clipboard-history.json
+```
+
+It stores plain text plus local metadata such as creation time and use count. It must not store rich text, files, images, or password-like content unless the user explicitly disables filtering.
 
 Note: `FeiniuLoginClient` can store a token in Keychain for the old direct API-login path, but the preferred current flow is embedded WebKit login via `FeiniuWebSession`.
 
@@ -525,11 +551,36 @@ Key files:
 
 Be careful with WebKit state and app identity. Running as a proper `.app` bundle is more stable than `swift run` for WebKit/cookie behavior.
 
+## Clipboard History
+
+The clipboard feature records only `NSPasteboard` plain-text values.
+
+Runtime pieces:
+
+- `ClipboardTriggerController` registers the global trigger.
+- `ClipboardHistoryPanelController` owns the floating picker window and hover detail window.
+- `ClipboardHistoryView` renders the compact list of recent items.
+- `ClipboardHistoryStore` persists history to `~/.mac-companion/clipboard-history.json`.
+
+Trigger behavior:
+
+- Default trigger mode is middle mouse.
+- `CGEventTap` is attempted first so the middle-click event can be swallowed when macOS permissions allow it.
+- If the writable event tap is unavailable, the app falls back to listen-only monitoring so the picker can still appear.
+- Global middle-mouse listening requires macOS privacy permission under Input Monitoring. Because the app is ad-hoc signed during local builds, rebuilding or replacing the `.app` can require re-granting privacy permissions.
+
+UI behavior:
+
+- The picker appears near the mouse and shows the most recent plain-text entries.
+- Selecting an item writes it back to the system clipboard; it does not auto-paste.
+- The picker uses SwiftUI liquid glass styling. Avoid adding large shadows around transparent `NSPanel` windows because they can create gray corner artifacts.
+- Placement uses the screen visible frame; if Dock-related offsets are adjusted, verify both below-mouse and above-mouse placement.
+
 ## Logging
 
 Runtime log path is exposed in the UI and backed by `AppFileLogger`.
 
-The UI activity log is in-memory and capped. Persistent file logs are better for debugging longer flows.
+The UI activity log is in-memory, capped, and scoped by module. Do not send high-frequency diagnostics such as clipboard mouse-event traces into the user-visible status or activity log; write them to `AppFileLogger` with a category instead. Persistent file logs are better for debugging longer flows.
 
 Useful places:
 
